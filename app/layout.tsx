@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "../components/messenger.css";
 export const metadata: Metadata = {
-  title: "وصال | محادثة مباشرة",
+  title: "التحدث عبر الواتس اب",
+  openGraph: { title: "التحدث عبر الواتس اب", description: "محادثة مباشرة مع صاحب الحساب." },
   description: "محادثة خاصة بينك وبين صاحب الموقع على وصال.",
   icons: { icon: "/favicon.svg" },
   robots: { index: false, follow: false },
