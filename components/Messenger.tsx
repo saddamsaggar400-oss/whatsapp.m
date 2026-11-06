@@ -4,6 +4,8 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
+  useSyncExternalStore,
   useState,
   type FormEvent,
   type ReactNode,
@@ -21,6 +23,8 @@ import {
   X,
   Check,
   CheckCheck,
+  Clock3,
+  CircleAlert,
   Archive,
   Pin,
   Settings,
@@ -67,6 +71,7 @@ import {
 } from "./messaging-api";
 import OwnerInfo from "./OwnerInfo";
 import AccountIntro from "./AccountIntro";
+import { EMPTY_OUTBOX, getMessageOutbox, discardMessageOutbox, mergeOutbox } from "./message-outbox";
 import VerifiedBadge from "./legacy/VerifiedBadge";
 import "./messenger.css";
 import { useMessageSound } from "./use-message-sound";
@@ -537,7 +542,6 @@ function Thread({
   const [draft, setDraft] = useState(""),
     [attachment, setAttachment] = useState<Attachment | null>(null),
     [preview, setPreview] = useState(""),
-    [busy, setBusy] = useState(false),
     [uploading, setUploading] = useState(false);
   const [emoji, setEmoji] = useState(false),
     [menu, setMenu] = useState(false),
@@ -556,10 +560,21 @@ function Thread({
   const nearBottom = useRef(true),
     pendingReads = useRef(new Set<number>()),
     lastTyped = useRef(0),
-    pendingId = useRef<string | null>(null),
     older = useRef<Message[]>([]),
     olderHasMore = useRef<boolean | null>(null);
   const admin = false;
+  const outbox = useMemo(() => getMessageOutbox(session.user.id, chat.id, async message => {
+    const data = await request<{ message: Message }>(`/conversations/${chat.id}/messages`, "POST", {
+      text: message.text, attachmentId: message.attachment?.id, clientId: message.clientId,
+    }, typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(20000) : undefined);
+    onRefresh();
+    return data.message;
+  }), [session.user.id, chat.id, onRefresh]);
+  const localMessages = useSyncExternalStore(outbox.subscribe, outbox.getSnapshot, () => EMPTY_OUTBOX);
+  useEffect(() => outbox.reconcile(messages), [outbox, messages]);
+  useEffect(() => {
+    if (nearBottom.current) requestAnimationFrame(() => bottom.current?.scrollIntoView());
+  }, [localMessages]);
   const peer = admin ? members.find((u) => u.id !== session.user.id) || session.owner : session.owner;
   const livePeer = { ...peer, ...(presence[peer.id] || {}) };
   const peerTyping = typing.some(
@@ -674,48 +689,19 @@ function Thread({
           ? URL.createObjectURL(file)
           : "",
       );
-      pendingId.current = null;
     } catch (err) {
       onError(errorText(err));
     } finally {
       setUploading(false);
     }
   }
-  async function send(event?: FormEvent) {
+  function send(event?: FormEvent) {
     event?.preventDefault();
-    if ((!draft.trim() && !attachment) || busy || uploading || recording)
-      return;
-    setBusy(true);
-    const clientId = pendingId.current || crypto.randomUUID();
-    pendingId.current = clientId;
-    try {
-      const data = await request<{ message: Message }>(
-        `/conversations/${chat.id}/messages`,
-        "POST",
-        { text: draft, attachmentId: attachment?.id, clientId },
-      );
-      setMessages((prev) =>
-        prev.some((m) => m.id === data.message.id)
-          ? prev
-          : [...prev, data.message],
-      );
-      setDraft("");
-      setAttachment(null);
-      setPreview("");
-      setEmoji(false);
-      pendingId.current = null;
-      nearBottom.current = true;
-
-      onRefresh();
-      requestAnimationFrame(() => {
-        bottom.current?.scrollIntoView({ behavior: "smooth" });
-        input.current?.focus();
-      });
-    } catch (err) {
-      onError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
+    if ((!draft.trim() && !attachment) || uploading || recording) return;
+    nearBottom.current = true;
+    outbox.enqueue({ conversationId: chat.id, senderId: session.user.id, text: draft.trim(), attachment });
+    setDraft(""); setAttachment(null); setPreview(""); setEmoji(false);
+    requestAnimationFrame(() => { bottom.current?.scrollIntoView(); input.current?.focus(); });
   }
   async function record() {
     if (
@@ -779,13 +765,14 @@ function Thread({
       onError(errorText(err));
     }
   }
+  const visibleMessages = mergeOutbox(messages, localMessages);
   const filtered = search
-    ? messages.filter(
+    ? visibleMessages.filter(
         (m) =>
           m.text.toLowerCase().includes(search.toLowerCase()) ||
           m.attachment?.name.includes(search),
       )
-    : messages;
+    : visibleMessages;
   return (
     <section className="w-thread">
       <header className="w-thread-header">
@@ -979,7 +966,7 @@ function Thread({
           const mine = message.senderId === session.user.id,
             previous = filtered[index - 1];
           return (
-            <div className="w-message-entry" key={message.id}>
+            <div className="w-message-entry" key={message.clientId ? `${message.senderId}:${message.clientId}` : message.id}>
               {(!previous ||
                 dayText(previous.createdAt) !== dayText(message.createdAt)) && (
                 <span className="w-day">{dayText(message.createdAt)}</span>
@@ -997,8 +984,9 @@ function Thread({
                     <time dateTime={new Date(message.createdAt).toISOString()}>
                       {timeText(message.createdAt)}
                     </time>
-                    {mine && <ReceiptIcon message={message} />}
+                    {mine && (message.sendState === "failed" ? <CircleAlert size={17} aria-label="فشل الإرسال" /> : message.sendState === "queued" || message.sendState === "sending" ? <Clock3 size={16} aria-label="جارٍ الإرسال" /> : <ReceiptIcon message={message} />)}
                   </div>
+                  {message.sendState === "failed" && <button className="w-retry-send" title={message.sendError} onClick={() => outbox.retry(message.clientId)}><RefreshCw size={14} />إعادة محاولة الإرسال</button>}
                 </div>
               </div>
             </div>
@@ -1031,8 +1019,7 @@ function Thread({
                 key={value}
                 onClick={() => {
                   setDraft(draft + value);
-                  pendingId.current = null;
-                  input.current?.focus();
+                              input.current?.focus();
                 }}
               >
                 {value}
@@ -1061,12 +1048,11 @@ function Thread({
             </span>
             <IconButton
               label="إزالة المرفق"
-              disabled={uploading || busy}
+              disabled={uploading}
               onClick={() => {
                 setAttachment(null);
                 setPreview("");
-                pendingId.current = null;
-              }}
+                        }}
             >
               <X size={19} />
             </IconButton>
@@ -1112,14 +1098,13 @@ function Thread({
               <IconButton
                 label="الرموز التعبيرية"
                 onClick={() => setEmoji(!emoji)}
-                disabled={busy}
               >
                 <Smile size={25} />
               </IconButton>
               <IconButton
                 label="إرفاق صورة أو فيديو أو ملف"
                 onClick={() => picker.current?.click()}
-                disabled={busy || uploading}
+                disabled={uploading}
               >
                 <Paperclip size={24} />
               </IconButton>
@@ -1131,11 +1116,9 @@ function Thread({
                 maxLength={10000}
                 aria-label="نص الرسالة"
                 placeholder="اكتب رسالة"
-                disabled={busy}
                 onChange={(e) => {
                   setDraft(e.target.value);
-                  pendingId.current = null;
-                  if (Date.now() - lastTyped.current > 1800) {
+                              if (Date.now() - lastTyped.current > 1800) {
                     lastTyped.current = Date.now();
                     void request(`/conversations/${chat.id}/typing`, "POST", {
                       active: Boolean(e.target.value),
@@ -1157,13 +1140,9 @@ function Thread({
                 <button
                   className="w-send"
                   aria-label="إرسال الرسالة"
-                  disabled={busy || uploading}
+                  disabled={uploading}
                 >
-                  {busy ? (
-                    <LoaderCircle className="w-spin" size={23} />
-                  ) : (
-                    <Send size={23} />
-                  )}
+                  <Send size={23} />
                 </button>
               ) : (
                 <IconButton
@@ -1243,6 +1222,7 @@ function Inbox({
     [hasMore, setHasMore] = useState(false),
     [nextOffset, setNextOffset] = useState(50),
     [loadingMore, setLoadingMore] = useState(false);
+  const [accountRevision, setAccountRevision] = useState(0);
   const [activeStatus, setActiveStatus] = useState<string | undefined>();
   const [modal, setModal] = useState<"settings" | "statuses" | null>(null),
     [toast, setToast] = useState(""),
@@ -1329,14 +1309,14 @@ function Inbox({
     loadStatuses();
     const timer = setInterval(loadStatuses, 30000);
     return () => clearInterval(timer);
-  }, [loadStatuses, refreshId]);
+  }, [loadStatuses, accountRevision]);
   useEffect(() => {
     void request<{ profile: User }>("/profile")
       .then((data) =>
         setSession((current) => ({ ...current, owner: data.profile })),
       )
       .catch(() => {});
-  }, [refreshId]);
+  }, [accountRevision]);
   useEffect(() => {
     connectionId.current ||= crypto.randomUUID();
     const stream = new EventSource(
@@ -1347,11 +1327,15 @@ function Inbox({
       setConnected(false);
       setTyping([]);
     };
-    stream.addEventListener("refresh", refresh);
+    stream.addEventListener("refresh", event => {
+      try { if (JSON.parse((event as MessageEvent).data).accountChanged !== false) setAccountRevision(n => n + 1); }
+      catch { setAccountRevision(n => n + 1); }
+      refresh();
+    });
     stream.addEventListener('messages', event => {
       try {
         const payload = JSON.parse((event as MessageEvent).data) as { messages: Message[] };
-        void acknowledgeMessages(payload.messages, session.user.id).then(refresh).catch(() => {});
+        void acknowledgeMessages(payload.messages, session.user.id).catch(() => {});
       } catch { /* An invalid event is retried on reconnect. */ }
     });
     stream.addEventListener("state", (event) => {
@@ -1448,6 +1432,7 @@ function Inbox({
     if (!selected) return;
     try {
       await request("/conversations/" + selected.id, "DELETE");
+      discardMessageOutbox(session.user.id, selected.id);
       setDeleting(false);
       setSelectedId(null);
       refresh();
