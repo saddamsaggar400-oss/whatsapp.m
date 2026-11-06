@@ -58,7 +58,6 @@ import { OWNER_ID } from "../lib/chat/types";
 import {
   apiPath,
   acknowledgeMessages,
-  avatarFile,
   dayText,
   errorText,
   fileUrl,
@@ -191,167 +190,6 @@ function Modal({
     </dialog>
   );
 }
-function ProfileSettings({
-  session,
-  onClose,
-  onSave,
-  theme,
-  onTheme,
-  onError,
-  sound,
-}: {
-  session: Session;
-  onClose: () => void;
-  onSave: (user: User) => void;
-  theme: string;
-  onTheme: () => void;
-  onError: (message: string) => void;
-  sound: ReturnType<typeof useMessageSound>;
-}) {
-  const [name, setName] = useState(session.user.name),
-    [about, setAbout] = useState(session.user.about),
-    [phone, setPhone] = useState(session.user.phone || ""),
-    [busy, setBusy] = useState(false);
-  const [avatarId, setAvatarId] = useState(""),
-    [preview, setPreview] = useState(session.user.avatarUrl);
-  const picker = useRef<HTMLInputElement>(null);
-  async function choose(file?: File) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const image = await avatarFile(file),
-        uploaded = await uploadFile(image, "avatar.jpg", "avatar");
-      setAvatarId(uploaded.id);
-      setPreview(URL.createObjectURL(image));
-    } catch (err) {
-      onError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    try {
-      const data = await request<{ user: User }>("/me", "PATCH", {
-        name,
-        about,
-        avatarId,
-        phone,
-      });
-      onSave(data.user);
-      onClose();
-    } catch (err) {
-      onError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-  useEffect(
-    () => () => {
-      if (preview.startsWith("blob:")) URL.revokeObjectURL(preview);
-    },
-    [preview],
-  );
-  return (
-    <Modal title={session.user.role === "admin" ? "الإعدادات والملف الشخصي" : "إعدادات المحادثة"} onClose={onClose}>
-      {session.user.role === "admin" && <div className="w-profile-photo">
-        <Avatar user={{ ...session.user, avatarUrl: preview }} />
-        <IconButton
-          label="تغيير الصورة الشخصية"
-          onClick={() => picker.current?.click()}
-          disabled={busy}
-        >
-          <Camera size={18} />
-        </IconButton>
-        <input
-          ref={picker}
-          className="w-hidden"
-          type="file"
-          accept="image/*"
-          onChange={(e) => void choose(e.target.files?.[0])}
-        />
-      </div>}
-      <form onSubmit={save}>
-        {session.user.role === "admin" && <label>
-          الاسم
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={60}
-            required
-          />
-        </label>}
-        {session.user.role === "guest" && (
-          <label>
-            رقم الهاتف (اختياري)
-            <input
-              type="tel"
-              dir="ltr"
-              autoComplete="tel"
-              value={phone}
-              maxLength={24}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+رمز الدولة والرقم"
-            />
-            <small className="w-field-help">
-              يظهر لصاحب الموقع فقط. رقم يكتبه الزائر دون تحقق SMS.
-            </small>
-          </label>
-        )}
-        {session.user.role === "admin" && <label>
-          النبذة
-          <input
-            value={about}
-            onChange={(e) => setAbout(e.target.value)}
-            maxLength={140}
-          />
-        </label>}
-        <button className="w-primary" disabled={busy}>
-          {busy ? (
-            <LoaderCircle size={18} className="w-spin" />
-          ) : (
-            "حفظ التغييرات"
-          )}
-        </button>
-      </form>
-      <button
-        className="w-setting-row"
-        onClick={() =>
-          void sound.toggle().catch((err) => onError(errorText(err)))
-        }
-      >
-        {sound.enabled && sound.unlocked ? (
-          <Bell size={20} />
-        ) : (
-          <BellOff size={20} />
-        )}
-        <span>
-          {sound.enabled && sound.unlocked
-            ? "كتم صوت الرسائل الجديدة"
-            : "تفعيل صوت الرسائل الجديدة"}
-        </span>
-        <small>{sound.enabled && sound.unlocked ? "مفعّل" : "متوقف"}</small>
-      </button>
-      <button className="w-setting-row" onClick={onTheme}>
-        {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-        <span>
-          {theme === "dark" ? "تفعيل الوضع النهاري" : "تفعيل الوضع الليلي"}
-        </span>
-        <ChevronLeft size={17} />
-      </button>
-      {session.user.role === "guest" && (
-        <p className="w-settings-note">
-          <ShieldCheck size={17} />
-          هويتك ومحادثتك محفوظتان لهذا المتصفح. لا تشارك جهازك إذا أردت الحفاظ
-          على خصوصيتهما.
-        </p>
-      )}
-
-    </Modal>
-  );
-}
-
 function StatusPanel({
   session,
   statuses,
@@ -1019,8 +857,9 @@ function Thread({
                     }}
                   >
                     <CircleDashed size={17} />
-                    الحالات
+                    {admin ? "الحالات" : "الحالة"}
                   </button>
+                  {admin && (
                   <button
                     onClick={() => {
                       onSettings();
@@ -1030,6 +869,7 @@ function Thread({
                     <Settings size={17} />
                     {admin ? "الإعدادات والملف الشخصي" : "إعدادات المحادثة"}
                   </button>
+                  )}
                   {admin && (
                     <>
                       <button
@@ -1945,17 +1785,6 @@ function Inbox({
             لوحة خاصة بصاحب الموقع
           </span>
         </section>
-      )}
-      {modal === "settings" && (
-        <ProfileSettings
-          session={session}
-          sound={sound}
-          theme={theme}
-          onTheme={onTheme}
-          onClose={() => setModal(null)}
-          onSave={saved}
-          onError={setToast}
-        />
       )}
       {modal === "statuses" && (
         <StatusPanel
