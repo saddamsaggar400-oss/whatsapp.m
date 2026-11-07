@@ -9,6 +9,22 @@ const request = (path, method = 'GET', headers = {}, body) => new Request(site +
   method, headers: { 'X-Chat-Request': '1', Origin: site, ...headers }, ...(body === undefined ? {} : { body }),
 });
 
+test('only guest push configuration, opt-in and unsubscribe pass through the gateway with the private guest session', async () => {
+  for (const [path, method] of [['push/config', 'GET'], ['push/subscription', 'POST'], ['push/subscription', 'DELETE']]) {
+    const payload = JSON.stringify({ endpoint: 'https://fcm.googleapis.com/fcm/send/test' });
+    const response = await proxyGuestRequest(request(path, method, { Cookie: `wisal_visitor_guest=${token}` }, method === 'GET' ? undefined : payload), { backend, fetch: async (url, init) => {
+      assert.equal(init.headers.get('Cookie'), `wisal_guest=${token}`);
+      assert.equal(new URL(url).searchParams.get('view'), 'guest');
+      if (method !== 'GET') assert.equal(await new Request(url, init).text(), payload);
+      return Response.json({ ok: true });
+    } });
+    assert.equal(response.status, 200);
+  }
+  for (const [path, method] of [['push/admin', 'POST'], ['push/config', 'POST'], ['push/subscription', 'GET'], ['conversations/bulk-delete', 'POST']]) {
+    assert.equal((await proxyGuestRequest(request(path, method), { backend, fetch: async () => assert.fail('must not reach backend') })).status, 403);
+  }
+});
+
 test('a guest uses only the central backend, while all admin identities and cookies are stripped', async () => {
   let received;
   const response = await proxyGuestRequest(request('conversations?view=guest&backend=https://evil.example', 'GET', {

@@ -71,6 +71,7 @@ import {
 } from "./messaging-api";
 import OwnerInfo from "./OwnerInfo";
 import AccountIntro from "./AccountIntro";
+import PushNotifications from "./PushNotifications";
 import { EMPTY_OUTBOX, getMessageOutbox, discardMessageOutbox, mergeOutbox } from "./message-outbox";
 import VerifiedBadge from "./legacy/VerifiedBadge";
 import "./messenger.css";
@@ -916,6 +917,7 @@ function Thread({
           </IconButton>
         </div>
       )}
+      {!admin && <PushNotifications userId={session.user.id} />}
       <div
         className="w-messages"
         ref={scroller}
