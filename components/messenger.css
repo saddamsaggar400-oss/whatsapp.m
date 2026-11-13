@@ -1750,8 +1750,18 @@ dialog.w-account-sheet { position: fixed; inset-block: 0; inset-inline-start: 0;
   font-size: 12px;
   flex-shrink: 0;
 }
+.w-push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.w-push-banner .w-push-active:disabled {
+  opacity: 1;
+  cursor: default;
+}
 .w-push-banner .w-push-error { color: var(--danger, #c0392b); }
 @media (max-width: 600px) {
   .w-push-banner { flex-wrap: wrap; gap: 7px; padding: 9px 12px; }
-  .w-push-banner button { margin-inline-start: 26px; }
+  .w-push-actions { margin-inline-start: 26px; }
 }
