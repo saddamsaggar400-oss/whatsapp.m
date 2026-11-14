@@ -1765,3 +1765,19 @@ dialog.w-account-sheet { position: fixed; inset-block: 0; inset-inline-start: 0;
   .w-push-banner { flex-wrap: wrap; gap: 7px; padding: 9px 12px; }
   .w-push-actions { margin-inline-start: 26px; }
 }
+
+.w-photo-status-ring,
+.w-status-avatar {
+  display: inline-flex;
+  border-radius: 50%;
+}
+.w-photo-status-ring {
+  outline: 2px solid var(--bright);
+  outline-offset: 2px;
+}
+.wisal-app .w-status-avatar-button {
+  padding: 0;
+  display: inline-flex;
+  flex-shrink: 0;
+  border-radius: 50%;
+}

@@ -786,8 +786,14 @@ function Thread({
             <ArrowRight size={23} />
           </IconButton>
         )}
+        {ownerStatus && (
+          <button type="button" className="w-status-avatar-button" aria-label="عرض حالة صاحب الحساب"
+            onClick={() => onStatuses(ownerStatus.id)}>
+            <span className="w-photo-status-ring"><Avatar user={session.owner} /></span>
+          </button>
+        )}
         <button className="w-person" aria-label={admin ? undefined : "عرض معلومات الحساب"} onClick={() => setInfo(true)}>
-          <Avatar user={peer} group={chat.isGroup} />
+          {!ownerStatus && <Avatar user={peer} group={chat.isGroup} />}
           <span>
             <strong>
               <Name user={peer} text={chat.isGroup ? chat.title : undefined} />
@@ -933,7 +939,7 @@ function Thread({
           <ShieldCheck size={14} />
           محادثتك الخاصة على وصال مع صاحب الموقع فقط.
         </div>
-        {!admin && !search && <AccountIntro owner={session.owner} onOpen={() => setInfo(true)} />}
+        {!admin && !search && <AccountIntro owner={session.owner} hasStatus={Boolean(ownerStatus)} onOpen={() => setInfo(true)} />}
         {hasMore && (
           <button className="w-load-older" onClick={() => void loadOlder()}>
             تحميل رسائل أقدم
@@ -1312,6 +1318,14 @@ function Inbox({
     const timer = setInterval(loadStatuses, 30000);
     return () => clearInterval(timer);
   }, [loadStatuses, accountRevision]);
+  useEffect(() => {
+    if (!statuses.length) return;
+    const nextExpiry = Math.min(...statuses.map(status => status.expiresAt));
+    const timer = setTimeout(() => {
+      setStatuses(current => current.filter(status => status.expiresAt > Date.now()));
+    }, Math.max(0, nextExpiry - Date.now()));
+    return () => clearTimeout(timer);
+  }, [statuses]);
   useEffect(() => {
     void request<{ profile: User }>("/profile")
       .then((data) =>
