@@ -72,6 +72,7 @@ import {
 import OwnerInfo from "./OwnerInfo";
 import AccountIntro from "./AccountIntro";
 import PushNotifications from "./PushNotifications";
+import MessageText from "./MessageText";
 import { EMPTY_OUTBOX, getMessageOutbox, discardMessageOutbox, mergeOutbox } from "./message-outbox";
 import VerifiedBadge from "./legacy/VerifiedBadge";
 import "./messenger.css";
@@ -564,6 +565,7 @@ function Thread({
     older = useRef<Message[]>([]),
     olderHasMore = useRef<boolean | null>(null);
   const admin = false;
+  const ownerStatus = statuses.find(status => status.expiresAt > Date.now());
   const outbox = useMemo(() => getMessageOutbox(session.user.id, chat.id, async message => {
     const data = await request<{ message: Message }>(`/conversations/${chat.id}/messages`, "POST", {
       text: message.text, attachmentId: message.attachment?.id, clientId: message.clientId,
@@ -987,7 +989,7 @@ function Thread({
                     </span>
                   )}
                   <Media attachment={message.attachment} />
-                  {message.text && <p dir="auto">{message.text}</p>}
+                  {message.text && <p dir="auto"><MessageText text={message.text} /></p>}
                   <div className="w-message-meta">
                     <time dateTime={new Date(message.createdAt).toISOString()}>
                       {timeText(message.createdAt)}
